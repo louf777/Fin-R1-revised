@@ -11,7 +11,7 @@
   📄 [中文](./README.md) | [EN](./README_en.md) | [日本語](./README_ja.md)
 </div>
 
-Fin-R1 is a large language model for complex financial reasoning developed and open-sourced with the joint efforts of the SUFE-AIFLM-Lab at the School of Statistics and Data Science, Shanghai University of Finance and Economics and FinStep.AI. Built on Qwen2.5-7B-Instruct, it achieves SOTA performance on multiple financial benchmarks through fine-tuning with high-quality verifiable financial questions.                        
+Fin-R1 is a large language model for complex financial reasoning, builting on Qwen2.5-7B-Instruct, it achieved SOTA performance on multiple financial benchmarks through fine-tuning with high-quality verifiable financial questions.                        
 
 
 
@@ -195,6 +195,3 @@ print("Chat response:", chat_response) 
 ##  Statement and Future Outlook <a name="todo"></a>
 This project was done with the joint efforts of the Financial LLM Research Group of the School of Statistics and Data Science at Shanghai University of Finance and Economics (SUFE-AIFLM-Lab) and FinStep.AI. Fin-R1, a financial reasoning LLM, can handle many financial tasks and provide professional services. However, it still has technical and application limits. Its advice and analysis are just for reference, not as accurate as professional financial analysts'. Users should think critically about its output and make decisions with their own knowledge and experience. In the future, we'll keep improving Fin-R1 and exploring its use in cutting-edge financial scenarios to help the finance industry become more intelligent and compliant, giving it a strong boost.  
 
-
-## 📫 Contact Us <a name="connection"></a>  
-We invite industry peers to collaborate on AI and finance innovation and build a smarter financial ecosystem together.Please contact zhang.liwen@shufe.edu.cn via email.
