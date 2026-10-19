@@ -8,7 +8,7 @@
   [![License](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0) [![Model Download](https://img.shields.io/badge/🤗-Download_Model-blue)](https://huggingface.co/SUFE-AIFLM-Lab/Fin-R1) [![Technical Report](https://img.shields.io/badge/📚-Technical_Report-orange)](https://arxiv.org/abs/2503.16252)               
 
   <!-- 语言切换链接 -->
-  📄 [中文](./README.md) | [EN](./README_en.md) | [日本語](./README_ja.md)
+  📄 [中文](./README.md) | [EN](./README_en.md)
 </div>
 
 Fin-R1 is a large language model for complex financial reasoning, builting on Qwen2.5-7B-Instruct, it achieved SOTA performance on multiple financial benchmarks through fine-tuning with high-quality verifiable financial questions.                        
