@@ -168,7 +168,7 @@ python -m pip freeze > environment.lock.txt
 
 当服务器的 CUDA 驱动与默认 PyTorch wheel 不一致时，需要先选择与驱动匹配的 PyTorch，再安装 LlamaFactory，以保证训练框架、通信库和 GPU 运行时保持一致。
 
-### 3.2 数据适配
+### 数据适配
 
 #### SFT 数据适配
 
@@ -278,7 +278,7 @@ deepspeed: examples/deepspeed/ds_z3_config.json
 - 显存不足时优先降低 `cutoff_len`，再调整 batch；
 - 如改用 LoRA，必须在 GRPO 前合并 adapter。
 
-#### 3.3.5 日志与保存模块
+#### 日志与保存模块
 
 ```yaml
 output_dir: /path/to/outputs/finr1-qwen25-7b-sft
@@ -290,7 +290,7 @@ report_to: none
 ddp_timeout: 180000000
 ```
 
-### 3.4 训练启动与结果确认
+### 训练启动与结果确认
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1,2,3，4，5，6，7，8 \
@@ -299,9 +299,9 @@ llamafactory-cli train finr1_qwen25_7b_sft.yaml
 ```
 
 
-## 4. RL 训练框架
+## RL 训练框架
 
-### 4.1 环境准备
+### 环境准备
 
 verl 为 GRPO 阶段提供 rollout、策略优化和分布式训练能力。完成源码准备后，
 训练环境可通过以下方式统一安装：
@@ -321,7 +321,7 @@ export PYTHON_BIN="$VERL_ROOT/.venv/bin/python"
 
 verl 的训练 rollout 依赖由训练环境统一管理，不应使用独立推理环境的依赖覆盖。
 
-### 4.2 数据适配
+### 数据适配
 
 论文将 RL 数据定义为客观问题与标准答案对 `(x, s*)`。当前发布目录中的 RL 文件先作为
 候选数据，再根据题目类型和答案可验证性生成 GRPO 训练集：
@@ -401,19 +401,19 @@ FinQA 与 ConvFinQA 的受控子实验适配器可用于检查字段和奖励逻
 python3 check_token_lengths.py \
   --model /path/to/finr1-qwen25-7b-sft/checkpoint-SELECTED \
   --data /path/to/derived-rl-data/train.parquet \
-  --max-prompt-length 4096
+  --max-prompt-length 8192
 ```
 
 若 `over_limit` 非零，应提高长度上限或明确排除样本。
 训练配置必须保持 `filter_overlong_prompts=True` 和 `truncation=error`。
 
-### 4.3 推荐实验配置
+### 推荐实验配置
 
 论文给出了 GRPO 目标、格式奖励、Qwen2.5-Max 准确率奖励和 `G >= 2` 的组采样定义，
 但未报告 batch、学习率、响应长度、KL 系数和采样参数。下列数值是本项目的推荐实现配置。
 训练数据应使用第 4.2 节导出的完整客观题 RL 集，而不是三数千条的 FinQA + ConvFinQA 子集。
 
-#### 4.3.1 算法模块
+#### 算法模块
 
 | 参数 | 推荐值 | 说明 |
 |---|---:|---|
@@ -421,7 +421,7 @@ python3 check_token_lengths.py \
 | `algorithm.norm_adv_by_std_in_grpo` | true | 按组内标准差归一化 |
 | `algorithm.use_kl_in_reward` | false | KL 由 Actor loss 计算 |
 
-#### 4.3.2 数据与 batch 模块
+#### 数据与 batch 模块
 
 | 参数 | 推荐值 | 说明 |
 |---|---:|---|
@@ -440,7 +440,7 @@ python3 check_token_lengths.py \
 16 prompts × 8 responses = 128 trajectories
 ```
 
-#### 4.3.3 Actor 优化模块
+#### Actor 优化模块
 
 | 参数 | 推荐值 |
 |---|---:|
@@ -458,7 +458,7 @@ python3 check_token_lengths.py \
 `seq-mean-token-mean` 与历史 seed42 配置中的 `token-mean` 不等价，
 两种实验不得合并统计。
 
-#### 4.3.4 Reference 与 KL 模块
+#### Reference 与 KL 模块
 
 | 参数 | 推荐值 |
 |---|---:|
@@ -471,7 +471,7 @@ python3 check_token_lengths.py \
 
 Reference 模型从同一个 SFT checkpoint 初始化并保持冻结。
 
-#### 4.3.5 vLLM rollout 模块
+#### vLLM rollout 模块
 
 | 参数 | 推荐值 | 说明 |
 |---|---:|---|
@@ -489,7 +489,7 @@ Reference 模型从同一个 SFT checkpoint 初始化并保持冻结。
 | validation `temperature` | 0 | 贪心验证 |
 | validation `n` | 1 | 每样本一次验证 |
 
-#### 4.3.6 奖励模块
+#### 奖励模块
 
 奖励函数入口：
 
@@ -525,7 +525,7 @@ Judge 请求采用 `temperature=0`、JSON 二元输出和 SQLite prompt 缓存�
 论文使用 Qwen2.5-Max；若采用其他固定日期版本作为工程替代，应在实验记录中单独声明。
 论文对齐设置可写为 `QWEN_JUDGE_MODEL=qwen2.5-max`。
 
-#### 4.3.7 Trainer 模块
+#### Trainer 模块
 
 | 参数 | 推荐值 |
 |---|---:|
@@ -538,7 +538,7 @@ Judge 请求采用 `temperature=0`、JSON 二元输出和 SQLite prompt 缓存�
 | `trainer.max_actor_ckpt_to_keep` | 6 |
 | `trainer.resume_mode` | `disable` 或 `auto` |
 
-### 4.4 配置与启动
+### 配置与启动
 
 GRPO 配置模板中的路径需要替换为当前训练环境对应的位置。配置文件可按以下方式生成：
 
@@ -584,7 +584,7 @@ loss_agg_mode=token-mean
 
 该配置与本文推荐的全量预设不同，应使用不同实验名称和输出目录。
 
-### 4.5 奖励测试与训练验收
+### 奖励测试与训练验收
 
 单元测试：
 
@@ -611,9 +611,9 @@ python3 smoke_test_judge.py
 
 ---
 
-## 5. 评测框架
+## 评测框架
 
-### 5.1 环境准备
+### 环境准备
 
 安装 EvalScope 基础环境：
 
@@ -640,12 +640,11 @@ python -m pip freeze > environment.lock.txt
 bash smoke_test.sh
 ```
 
-### 5.2 评测数据适配
+### 评测数据适配
 
 #### 5.2.1 子集定义
 
-论文 Section 5.1 规定：除 Finance-Instruct-500k 外，其他四个数据集使用官方评测 split，
-每个数据集随机抽取至多 1,000 题；Finance-Instruct-500k 使用分层抽样构造 10% test subset。
+规定除 Finance-Instruct-500k 外，其他四个数据集使用官方评测 split，每个数据集随机抽取至多 1,000 题；Finance-Instruct-500k 使用分层抽样构造 10% test subset。
 
 | 子集 | 论文评测口径 | 本地可执行 split | 规模 | 评分方式 |
 |---|---|---|---:|---|
@@ -655,11 +654,9 @@ bash smoke_test.sh
 | TFNS | 官方评测 split | 官方 valid | 1,000 | 确定性标签匹配 |
 | Finance-Instruct-500k | 完整数据的分层 10% test subset | 清洗后 11,300 条数据的确定性 10% holdout | 1,000 | LLM answer-equivalence |
 
-论文同时规定：若某个数据集的可用题目少于 1,000 条，则使用全部题目。
-ConvFinQA 与 Ant-Finance 的公开隐藏测试没有可用标签，因此本地使用可验证的替代 split。
-该替代保证评测流程可执行，但不声称与作者原始 sample IDs 完全一致。
+同时规定若某个数据集的可用题目少于 1,000 条，则使用全部题目。ConvFinQA 与 Ant-Finance 的公开隐藏测试没有可用标签，因此本地使用可验证的替代 split。该替代保证评测流程可执行，但不声称与作者原始 sample IDs 完全一致。
 
-#### 5.2.2 数据结构
+#### 数据结构
 
 五个子集统一为 JSONL：
 
@@ -687,7 +684,7 @@ ConvFinQA 与 Ant-Finance 的公开隐藏测试没有可用标签，因此本地
 - `response`：参考答案，不包含 `<think>`；
 - `prompt_sha256`：去重与隔离检查。
 
-#### 5.2.3 数据生成
+#### 数据生成
 
 评测扩展提供了固定的评测数据生成逻辑；需要重新生成评测文件时，可使用：
 
@@ -719,17 +716,10 @@ python evalscope/examples/finr1_paper_eval/prepare_data.py \
 当前实现可在本地处理后的 11,300 条数据上执行确定性 10% holdout，但作者原始 stratification
 字段和 sample IDs 未公开，因此不能将该子集表述为逐条重建的论文测试集。
 
-#### 5.2.4 评测隔离边界
 
-- FinQA、ConvFinQA 和 TFNS 使用官方隔离 split；
-- ConvFinQA 私有测试无标准答案，因此使用 `dev_turn`；
-- Ant-Finance 公开隐藏测试无标签，因此使用 public labeled portion；
-- Finance-Instruct 评测集从 SFT 文件生成 holdout，不能视为独立泛化集；
-- 五个来源均进入过本地 Fin-R1 数据树，正式论文必须披露潜在覆盖。
+### 推荐实验配置
 
-### 5.3 推荐实验配置
-
-#### 5.3.1 模型端点模块
+#### 模型端点模块
 
 ```bash
 FINR1_MODEL=fin-r1-7b
@@ -739,7 +729,7 @@ FINR1_API_KEY=EMPTY
 
 `FINR1_MODEL` 必须与 vLLM 的 `--served-model-name` 一致。
 
-#### 5.3.2 数据集模块
+#### 数据集模块
 
 ```python
 dataset_args={
@@ -756,83 +746,6 @@ dataset_args={
 }
 ```
 
-#### 5.3.3 生成模块
-
-```text
-temperature = 0.0
-max_tokens = 4096
-seed = 42
-eval_batch_size = 16
-```
-
-论文未披露最终评测 sampling temperature。已有 SFT 与 GRPO 历史结果分别使用
-`0.6` 和 `0.0`，不满足同采样条件。新实验应统一生成配置，并将原历史结果单独报告。
-
-#### 5.3.4 Judge 模块
-
-论文 Section 5.1 说明采用 LLM-as-a-Judge 和优化后的答案等价 prompt，
-但正文没有指定最终评测 Judge 的具体模型。当前推荐配置采用：
-
-```bash
-FINR1_JUDGE_MODEL=qwen2.5-72b-instruct
-FINR1_JUDGE_API_URL=https://your-region-compatible-endpoint/v1
-FINR1_JUDGE_API_KEY=replace-with-your-key
-FINR1_JUDGE_REPEATS=1
-FINR1_JUDGE_AGGREGATION=majority_vote
-FINR1_JUDGE_MAX_TOKENS=8192
-```
-
-规则：
-
-- FinQA、ConvFinQA、Finance-Instruct-500k 使用 LLM Judge；
-- Ant-Finance 与 TFNS 使用确定性标签匹配；
-- 论文使用单一自动 Judge；本项目推荐每条开放题调用一次；
-- 聚合字段保留，便于独立进行多次 Judge 的稳健性实验；
-- 正式实验固定 Judge 日期版本，不使用滚动 alias；
-- 保留每次判定、返回 ID、错误和 disagreement。
-
-按论文定义，每个数据集的最终分数为正确率乘以 100；五项总分为五个子集分数的非加权平均。
-
-#### 5.3.5 执行模块
-
-```bash
-cd <evalscope-project>
-cp eval.env.example eval.env
-chmod 600 eval.env
-```
-
-小规模检查：
-
-```bash
-FINR1_LIMIT=2 bash run_eval.sh
-```
-
-完整评测：
-
-```bash
-FINR1_OUTPUT_DIR=/data/results/finr1-full bash run_eval.sh
-```
-
-输出目录包含：
-
-```text
-configs/task_config.yaml
-predictions/
-reviews/
-reports/
-logs/
-```
-
-验收条件：
-
-1. 每个子集 `Num=1000`，或明确记录缺失原因；
-2. 主指标为 Accuracy；
-3. `OVERALL` 为五个子集准确率的非加权平均；
-4. 有效 denominator 已报告；
-5. 同一比较使用相同 sample IDs；
-6. `manifest.json`、`task_config.yaml` 和逐题输出已归档。
-
----
 
 
 
