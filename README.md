@@ -5,7 +5,7 @@
    <h1>Fin-R1：通过强化学习驱动的金融推理大模型</h1>
   
 <!-- 徽章部分 -->
-   [![License](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)  [![模型下载](https://img.shields.io/badge/🤗-下载模型-blue)](https://huggingface.co/SUFE-AIFLM-Lab/Fin-R1)  [![技术报告](https://img.shields.io/badge/📚-技术报告-orange)](https://arxiv.org/abs/2503.16252)                                                                                                            
+   [![License](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)  [![模型下载](https://img.shields.io/badge/🤗-下载模型-blue)](https://huggingface.co/SUFE-AIFLM-Lab/Fin-R1) 
 
   <!-- 语言切换链接 -->
    📄 [中文](./README.md) | [EN](./README_en.md)        
