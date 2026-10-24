@@ -5,7 +5,7 @@
    <h1>Fin-R1：通过强化学习驱动的金融推理大模型</h1>
   
 <!-- 徽章部分 -->
-   [![License](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)  [![模型下载](https://img.shields.io/badge/🤗-下载模型-blue)](https://huggingface.co/SUFE-AIFLM-Lab/Fin-R1) 
+   [![License](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)  [![模型下载](https://img.shields.io/badge/🤗-下载模型-blue)](https://huggingface.co/SUFE-AIFLM-Lab/Fin-R1)  [![技术报告](https://img.shields.io/badge/📚-技术报告-orange)](https://arxiv.org/abs/2503.16252)                                                                                                            
 
   <!-- 语言切换链接 -->
    📄 [中文](./README.md) | [EN](./README_en.md)        
@@ -116,8 +116,6 @@ Fin-R1-Data 涵盖中英文金融垂直领域的多维度专业知识，并根�
 
 
 
-
-
 ## 🚀 微调训练<a name="trainning"></a>
 
 ### 两阶段流程
@@ -149,6 +147,694 @@ Fin-R1-Data 涵盖中英文金融垂直领域的多维度专业知识，并根�
 | DeepSeek-R1-Distill-Qwen-14B | 14B        |  62.0  | 73.0      | 82.0        |  65.0  | 49.0                    | 66.2    |                          
 | Qwen-2.5-7B-Instruct         | 7B         |  60.0  | 66.0      | 85.0        |  68.0  | 49.0                    | 65.6    |        
 | DeepSeek-R1-Distill-Qwen-7B  | 7B         |  55.0  | 62.0      | 71.0        |  60.0  | 42.0                    | 58.0    |      
+
+## 🕵️ SFT训练框架 <a name="sft"></a>
+### 环境准备
+
+LlamaFactory 为 SFT 阶段提供训练、数据注册和分布式启动能力。完成源码准备后，
+可通过以下命令建立独立的训练环境：
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -e .
+python -m pip install -r requirements/metrics.txt
+python -m pip install -r requirements/deepspeed.txt
+
+python -c "import llamafactory, torch; print(torch.__version__)"
+python -m pip freeze > environment.lock.txt
+```
+
+当服务器的 CUDA 驱动与默认 PyTorch wheel 不一致时，需要先选择与驱动匹配的 PyTorch，再安装 LlamaFactory，以保证训练框架、通信库和 GPU 运行时保持一致。
+
+### 3.2 数据适配
+
+#### SFT 数据适配
+
+将 Fin-R1-Data 用于 SFT。对应的开源数据覆盖金融业务知识、专业问答、数值推理、情绪分类和金融代码等任务。
+
+#### 数据注册
+
+LlamaFactory 通过数据注册表统一管理十个来源文件。注册名与文件的对应关系如下：
+
+| 注册名 | 文件 |
+|---|---|
+| `finqa_sft` | `FinQA_SFT.json` |
+| `convfinqa_sft` | `Convfinqa_SFT.json` |
+| `fincuge_sft` | `FinCUGE_SFT.json` |
+| `financeiq_sft` | `FinanceIQ_SFT.json` |
+| `finance_instruct_sft` | `Finance_instruct_SFT.json` |
+| `quant_trading_instruct_sft` | `Quant_Trading_Instruct_SFT.json` |
+| `tfns_sft` | `TFNS_SFT.json` |
+| `ant_finance_sft` | `Ant_Finance_SFT.json` |
+| `fincorpus_sft` | `FinCorpus_SFT.json` |
+| `finpostgrad_sft` | `FinPostgrad_SFT.json` |
+
+注册模板：
+
+```json
+{
+  "finqa_sft": {
+    "file_name": "FinQA_SFT.json",
+    "formatting": "alpaca",
+    "columns": {
+      "prompt": "instruction",
+      "query": "input",
+      "response": "output"
+    }
+  }
+}
+```
+
+其余九个条目采用相同字段映射，只替换注册名和 `file_name`。
+
+#### 检查模型与模板
+
+- 基座模型：`Qwen/Qwen2.5-7B-Instruct`；
+- `template`：`qwen`；
+- `model_revision`：固定到实际使用的 Hugging Face revision；
+- 训练和推理必须使用相同 tokenizer 与 chat template；
+- `output` 必须保持 `<think>...</think><answer>...</answer>` 结构。
+
+### 参考实验配置
+
+#### 模型模块
+
+```yaml
+model_name_or_path: /models/Qwen2.5-7B-Instruct
+model_revision: REPLACE_WITH_IMMUTABLE_REVISION
+trust_remote_code: true
+finetuning_type: full
+```
+
+我们使用了全参数 SFT，以便 GRPO 直接加载完整 Hugging Face checkpoint。
+
+#### 数据模块
+
+```yaml
+stage: sft
+do_train: true
+dataset: finqa_sft,convfinqa_sft,fincuge_sft,financeiq_sft,finance_instruct_sft,quant_trading_instruct_sft,tfns_sft,ant_finance_sft,fincorpus_sft,finpostgrad_sft
+dataset_dir: SFT_data
+mix_strategy: concat
+template: qwen
+cutoff_len: 16384
+packing: false
+overwrite_cache: false
+preprocessing_num_workers: 16
+dataloader_num_workers: 4
+```
+
+
+#### 优化模块
+补充报告学习率、batch、warmup、epoch 和随机种子，下列数值是可用于复现实验的工程设置。
+
+
+```yaml
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 4
+learning_rate: 1.0e-5
+num_train_epochs: 1.0
+lr_scheduler_type: cosine
+warmup_ratio: 0.03
+weight_decay: 0.01
+max_grad_norm: 1.0
+bf16: true
+seed: 42
+```
+
+
+#### 并行与显存模块
+
+```yaml
+deepspeed: examples/deepspeed/ds_z3_config.json
+```
+
+其他建议：
+
+- 保持 gradient checkpointing；
+- 先用单卡 `MAX_SAMPLES=10` 检查模板和标签；
+- 显存不足时优先降低 `cutoff_len`，再调整 batch；
+- 如改用 LoRA，必须在 GRPO 前合并 adapter。
+
+#### 3.3.5 日志与保存模块
+
+```yaml
+output_dir: /path/to/outputs/finr1-qwen25-7b-sft
+logging_steps: 10
+save_strategy: steps
+save_steps: 50
+save_only_model: false
+report_to: none
+ddp_timeout: 180000000
+```
+
+### 3.4 训练启动与结果确认
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3，4，5，6，7，8 \
+FORCE_TORCHRUN=1 \
+llamafactory-cli train finr1_qwen25_7b_sft.yaml
+```
+
+
+## 4. RL 训练框架
+
+### 4.1 环境准备
+
+verl 为 GRPO 阶段提供 rollout、策略优化和分布式训练能力。完成源码准备后，
+训练环境可通过以下方式统一安装：
+
+```bash
+uv sync --all-packages --extra vllm --extra fsdp
+uv run --all-packages --extra vllm --extra fsdp \
+  python -c "import verl, torch, vllm; print(verl.__file__)"
+```
+
+训练和 Ray worker 使用同一解释器：
+
+```bash
+export VERL_ROOT="$PWD"
+export PYTHON_BIN="$VERL_ROOT/.venv/bin/python"
+```
+
+verl 的训练 rollout 依赖由训练环境统一管理，不应使用独立推理环境的依赖覆盖。
+
+### 4.2 数据适配
+
+论文将 RL 数据定义为客观问题与标准答案对 `(x, s*)`。当前发布目录中的 RL 文件先作为
+候选数据，再根据题目类型和答案可验证性生成 GRPO 训练集：
+
+```text
+RL_data_parquet/
+```
+
+由于 `question_type` 字段统一为 `fin`，该字段本身不能区分客观题与开放式任务。数据适配
+阶段需要按来源和任务逐条筛选客观样本，并完成以下转换：
+
+1. 读取客观题来源的 Parquet；
+2. 删除空 `answer`；
+3. 将 `problem` 与系统提示组合为 `prompt`；
+4. 将 `answer` 写入 `reward_model.ground_truth`；
+5. 生成 `data_source`、`uid` 和追溯字段；
+6. 按来源分层并使用 prompt 哈希执行确定性训练/验证划分；
+7. 输出 `derived_verl_rl/train.parquet` 和 `derived_verl_rl/val.parquet`。
+
+如果从原始数据重新构建，数据导出阶段应遵循以下论文口径：
+
+1. 样本属于 objective 任务；
+2. 样本具有可验证的 `gold_answer`；
+3. 答案检查结果和排除原因被完整记录；
+4. RL 输入保留问题与标准答案，不把蒸馏推理轨迹当作监督输出；
+5. 训练数据与 SFT、评测数据的 prompt 重叠已经复核。
+
+从原始数据重新构建时，导出程序可按以下方式调用：
+
+```bash
+python3 04_export_training_data.py
+```
+
+输出文件为：
+
+```text
+data/04_training_data/
+├── sft.jsonl
+├── rl.jsonl
+└── discarded.jsonl
+```
+
+`rl.jsonl` 的核心字段：
+
+```json
+{
+  "uid": "source-specific-id",
+  "source": "FinQA",
+  "source_id": "native-id",
+  "revision": "fixed-revision",
+  "split": "train",
+  "question_type": "objective",
+  "question": "...",
+  "context": "...",
+  "gold_answer": "...",
+  "failure_stage": "answer_check"
+}
+```
+
+转换为 verl 训练记录时，应构造：
+
+- `prompt`：系统提示与问题、上下文；
+- `reward_model.ground_truth`：`gold_answer`；
+- `data_source`：`finr1/<source>`；
+- `extra_info`：`uid`、`native_id`、`source`、`prompt_sha256` 等追溯字段。
+
+转换后按来源分层，并依据规范化 prompt 哈希建立确定性的训练/验证划分。
+该验证集只用于 checkpoint 选择，不能替代第 5 节的官方评测集。
+
+FinQA 与 ConvFinQA 的受控子实验适配器可用于检查字段和奖励逻辑，但其小规模输出不能替代
+论文完整客观题 RL 数据集。完整实验应将开源 RL Parquet 中通过客观性审核的来源统一转换为
+同一种 verl 训练记录。
+
+完成全量转换后检查：
+
+```bash
+python3 check_token_lengths.py \
+  --model /path/to/finr1-qwen25-7b-sft/checkpoint-SELECTED \
+  --data /path/to/derived-rl-data/train.parquet \
+  --max-prompt-length 4096
+```
+
+若 `over_limit` 非零，应提高长度上限或明确排除样本。
+训练配置必须保持 `filter_overlong_prompts=True` 和 `truncation=error`。
+
+### 4.3 推荐实验配置
+
+论文给出了 GRPO 目标、格式奖励、Qwen2.5-Max 准确率奖励和 `G >= 2` 的组采样定义，
+但未报告 batch、学习率、响应长度、KL 系数和采样参数。下列数值是本项目的推荐实现配置。
+训练数据应使用第 4.2 节导出的完整客观题 RL 集，而不是三数千条的 FinQA + ConvFinQA 子集。
+
+#### 4.3.1 算法模块
+
+| 参数 | 推荐值 | 说明 |
+|---|---:|---|
+| `algorithm.adv_estimator` | `grpo` | 使用组相对 advantage |
+| `algorithm.norm_adv_by_std_in_grpo` | true | 按组内标准差归一化 |
+| `algorithm.use_kl_in_reward` | false | KL 由 Actor loss 计算 |
+
+#### 4.3.2 数据与 batch 模块
+
+| 参数 | 推荐值 | 说明 |
+|---|---:|---|
+| `data.train_batch_size` | 16 | 每步 prompt 数 |
+| `data.val_batch_size` | 16 | 验证 prompt 数 |
+| `actor_rollout_ref.rollout.n` | 8 | 每题回答数 |
+| `actor_rollout_ref.actor.ppo_mini_batch_size` | 16 | 每次策略更新轨迹数 |
+| `data.max_prompt_length` | 4,096 | 最大 prompt token |
+| `data.max_response_length` | 4,096 | 最大回答 token |
+| `actor_rollout_ref.rollout.max_model_len` | 8,192 | prompt + response 总长 |
+| `data.seed` | 42 | 数据、Actor 和 rollout 随机种子 |
+
+每个全局 step 生成：
+
+```text
+16 prompts × 8 responses = 128 trajectories
+```
+
+#### 4.3.3 Actor 优化模块
+
+| 参数 | 推荐值 |
+|---|---:|
+| `actor.optim.lr` | `1e-6` |
+| `actor.optim.lr_warmup_steps_ratio` | 0.03 |
+| `actor.optim.weight_decay` | 0.01 |
+| `actor.grad_clip` | 1.0 |
+| `actor.ppo_epochs` | 1 |
+| `actor.clip_ratio` | 0.2 |
+| `actor.entropy_coeff` | 0 |
+| `actor.loss_agg_mode` | `seq-mean-token-mean` |
+| `actor.use_dynamic_bsz` | true |
+| `actor.ppo_max_token_len_per_gpu` | 16,384 |
+
+`seq-mean-token-mean` 与历史 seed42 配置中的 `token-mean` 不等价，
+两种实验不得合并统计。
+
+#### 4.3.4 Reference 与 KL 模块
+
+| 参数 | 推荐值 |
+|---|---:|
+| `actor.use_kl_loss` | true |
+| `actor.kl_loss_coef` | 0.001 |
+| `actor.kl_loss_type` | `low_var_kl` |
+| `ref.log_prob_use_dynamic_bsz` | true |
+| `ref.log_prob_max_token_len_per_gpu` | 16,384 |
+| `ref.fsdp_config.param_offload` | true |
+
+Reference 模型从同一个 SFT checkpoint 初始化并保持冻结。
+
+#### 4.3.5 vLLM rollout 模块
+
+| 参数 | 推荐值 | 说明 |
+|---|---:|---|
+| `rollout.name` | `vllm` | 推理后端 |
+| `rollout.mode` | `async` | 异步 rollout |
+| `rollout.temperature` | 0.6 | 训练采样温度 |
+| `rollout.top_p` | 0.95 | nucleus sampling |
+| `rollout.top_k` | -1 | 不启用 top-k |
+| `rollout.tensor_model_parallel_size` | 2 | 张量并行度 |
+| `rollout.gpu_memory_utilization` | 0.50 | 与 Actor 共卡时的显存比例 |
+| `rollout.max_num_batched_tokens` | 16,384 | 单批 token 上限 |
+| `rollout.max_num_seqs` | 128 | 并发序列数 |
+| `rollout.enable_chunked_prefill` | true | 分块 prefill |
+| `rollout.enable_prefix_caching` | true | 前缀缓存 |
+| validation `temperature` | 0 | 贪心验证 |
+| validation `n` | 1 | 每样本一次验证 |
+
+#### 4.3.6 奖励模块
+
+奖励函数入口：
+
+```text
+rewards/finr1_qwen_plus_reward.py::compute_score
+```
+
+```bash
+reward.custom_reward_function.path=/absolute/path/to/rewards/finr1_qwen_plus_reward.py
+reward.custom_reward_function.name=compute_score
+reward.reward_manager.source=register
+reward.reward_manager.name=naive
+reward.num_workers=2
+reward.reward_model.enable=False
+```
+
+奖励由格式和准确性组成：
+
+```text
+R = R_format + R_accuracy
+R_format ∈ {0, 1}
+R_accuracy ∈ {0, 1}
+```
+
+格式检查要求：
+
+- 一个非空 `<think>...</think>`；
+- 一个非空 `<answer>...</answer>`；
+- 标签外没有其他非空白文本。
+
+准确性奖励通过 Qwen Judge 判断 `<answer>` 与 `ground_truth` 的语义一致性。
+Judge 请求采用 `temperature=0`、JSON 二元输出和 SQLite prompt 缓存。
+论文使用 Qwen2.5-Max；若采用其他固定日期版本作为工程替代，应在实验记录中单独声明。
+论文对齐设置可写为 `QWEN_JUDGE_MODEL=qwen2.5-max`。
+
+#### 4.3.7 Trainer 模块
+
+| 参数 | 推荐值 |
+|---|---:|
+| `trainer.n_gpus_per_node` | 4 |
+| `trainer.nnodes` | 1 |
+| `trainer.total_epochs` | 1 |
+| `trainer.val_before_train` | true |
+| `trainer.test_freq` | 25 |
+| `trainer.save_freq` | 25 |
+| `trainer.max_actor_ckpt_to_keep` | 6 |
+| `trainer.resume_mode` | `disable` 或 `auto` |
+
+### 4.4 配置与启动
+
+GRPO 配置模板中的路径需要替换为当前训练环境对应的位置。配置文件可按以下方式生成：
+
+```bash
+cp grpo_config_full.env grpo_config_local.env
+chmod 600 grpo_config_local.env
+```
+
+修改：
+
+```text
+VERL_ROOT
+PYTHON_BIN
+MODEL_PATH
+TRAIN_FILE=/path/to/derived-rl-data/train.parquet
+VAL_FILE=/path/to/derived-rl-data/val.parquet
+OUTPUT_DIR
+DASHSCOPE_API_KEY_FILE
+QWEN_JUDGE_MODEL=qwen2.5-max
+PROJECT_NAME
+EXPERIMENT_NAME
+```
+
+配置检查用于确认路径、模型、数据文件和奖励服务均已就绪：
+
+```bash
+bash run_grpo_from_config.sh grpo_config_local.env --check
+```
+
+配置确认后即可启动 GRPO 训练：
+
+```bash
+bash run_grpo_from_config.sh grpo_config_local.env
+```
+
+若进行 seed42 对照实验，可单独使用以下 batch 配置：
+
+```text
+train_batch_size=64
+ppo_mini_batch_size=64
+loss_agg_mode=token-mean
+```
+
+该配置与本文推荐的全量预设不同，应使用不同实验名称和输出目录。
+
+### 4.5 奖励测试与训练验收
+
+单元测试：
+
+```bash
+PYTHONPATH=. python3 -m unittest discover -s tests -p 'test_reward.py' -v
+```
+
+真实 API 检查：
+
+```bash
+export DASHSCOPE_API_KEY="$(cat /secure/path/dashscope_api_key)"
+python3 smoke_test_judge.py
+```
+
+训练验收：
+
+1. `--check` 通过；
+2. 2-step smoke 完成 rollout、reward、反向传播和保存；
+3. `train_batch_size × rollout.n` 能被 `ppo_mini_batch_size` 整除；
+4. GPU 数能被 TP 整除；
+5. reward 分量、KL、响应长度、entropy 和 clip fraction 正常；
+6. 不以训练 reward 代替 held-out 准确率进行模型选择；
+7. 完整 Hydra config、rollout、validation 和 Judge cache 已保存。
+
+---
+
+## 5. 评测框架
+
+### 5.1 环境准备
+
+安装 EvalScope 基础环境：
+
+```bash
+uv venv --python 3.12 .venv-eval
+uv pip install --python .venv-eval/bin/python evalscope
+```
+
+Fin-R1 使用自定义 `finr1_paper_eval`，正式评测还需安装仓库内扩展：
+
+```bash
+cd <evalscope-project>
+
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -e ./evalscope
+python -m pip freeze > environment.lock.txt
+```
+
+安装验证：
+
+```bash
+bash smoke_test.sh
+```
+
+### 5.2 评测数据适配
+
+#### 5.2.1 子集定义
+
+论文 Section 5.1 规定：除 Finance-Instruct-500k 外，其他四个数据集使用官方评测 split，
+每个数据集随机抽取至多 1,000 题；Finance-Instruct-500k 使用分层抽样构造 10% test subset。
+
+| 子集 | 论文评测口径 | 本地可执行 split | 规模 | 评分方式 |
+|---|---|---|---:|---|
+| FinQA | 官方评测 split | 官方 public test | 1,000 | LLM answer-equivalence |
+| ConvFinQA | 官方评测 split | 官方 labeled `dev_turn` | 1,000 | LLM answer-equivalence |
+| Ant-Finance | 官方评测 split | public labeled portion | 1,000 | 确定性标签匹配 |
+| TFNS | 官方评测 split | 官方 valid | 1,000 | 确定性标签匹配 |
+| Finance-Instruct-500k | 完整数据的分层 10% test subset | 清洗后 11,300 条数据的确定性 10% holdout | 1,000 | LLM answer-equivalence |
+
+论文同时规定：若某个数据集的可用题目少于 1,000 条，则使用全部题目。
+ConvFinQA 与 Ant-Finance 的公开隐藏测试没有可用标签，因此本地使用可验证的替代 split。
+该替代保证评测流程可执行，但不声称与作者原始 sample IDs 完全一致。
+
+#### 5.2.2 数据结构
+
+五个子集统一为 JSONL：
+
+```json
+{
+  "id": "benchmark-stable-id",
+  "native_id": "upstream-id",
+  "benchmark": "finqa",
+  "source_split": "test",
+  "stratum": "test",
+  "query": "完整模型输入",
+  "response": "标准答案",
+  "prompt_sha256": "sha256"
+}
+```
+
+字段用途：
+
+- `id`：跨模型比较时的配对键；
+- `native_id`：回溯原始数据；
+- `benchmark`：子集路由；
+- `source_split`：记录官方 split 或替代 split；
+- `stratum`：题型、来源子任务或答案提取方式；
+- `query`：模型输入；
+- `response`：参考答案，不包含 `<think>`；
+- `prompt_sha256`：去重与隔离检查。
+
+#### 5.2.3 数据生成
+
+评测扩展提供了固定的评测数据生成逻辑；需要重新生成评测文件时，可使用：
+
+```bash
+python evalscope/examples/finr1_paper_eval/prepare_data.py \
+  --data-root /path/to/raw-benchmarks \
+  --finance-instruct-path SFT_data/Finance_instruct_SFT.json \
+  --output-dir /path/to/finr1_paper_eval_data \
+  --seed 42
+```
+
+生成过程执行：
+
+1. FinQA 从 `dataset/test.json` 构造表格上下文和问题；
+2. ConvFinQA 从 `dev_turn.json` 构造当前轮上下文，历史答案来自 `exe_ans_list`；
+3. Ant-Finance 只保留有 `answer` 的公开样例，并排除同题异答；
+4. TFNS 使用 `sent_valid.csv` 和 `0/1/2` 标签；
+5. Finance-Instruct 删除冲突 prompt 和同答重复，按 seed 42 生成 10% holdout。
+
+输出五个 `*_test.jsonl` 和 `manifest.json`。`manifest.json` 必须记录：
+
+- 每个子集行数；
+- SHA-256；
+- source split；
+- 唯一 prompt 数；
+- 冲突、重复和无效样本处理数量。
+
+论文对 Finance-Instruct-500k 的设定是从完整数据中通过分层抽样构造 10% test subset。
+当前实现可在本地处理后的 11,300 条数据上执行确定性 10% holdout，但作者原始 stratification
+字段和 sample IDs 未公开，因此不能将该子集表述为逐条重建的论文测试集。
+
+#### 5.2.4 评测隔离边界
+
+- FinQA、ConvFinQA 和 TFNS 使用官方隔离 split；
+- ConvFinQA 私有测试无标准答案，因此使用 `dev_turn`；
+- Ant-Finance 公开隐藏测试无标签，因此使用 public labeled portion；
+- Finance-Instruct 评测集从 SFT 文件生成 holdout，不能视为独立泛化集；
+- 五个来源均进入过本地 Fin-R1 数据树，正式论文必须披露潜在覆盖。
+
+### 5.3 推荐实验配置
+
+#### 5.3.1 模型端点模块
+
+```bash
+FINR1_MODEL=fin-r1-7b
+FINR1_API_URL=http://127.0.0.1:8801/v1
+FINR1_API_KEY=EMPTY
+```
+
+`FINR1_MODEL` 必须与 vLLM 的 `--served-model-name` 一致。
+
+#### 5.3.2 数据集模块
+
+```python
+dataset_args={
+    "finr1_paper_eval": {
+        "local_path": ".../finr1_paper_eval_data",
+        "subset_list": [
+            "finqa",
+            "convfinqa",
+            "ant_finance",
+            "tfns",
+            "finance_instruct_500k",
+        ],
+    }
+}
+```
+
+#### 5.3.3 生成模块
+
+```text
+temperature = 0.0
+max_tokens = 4096
+seed = 42
+eval_batch_size = 16
+```
+
+论文未披露最终评测 sampling temperature。已有 SFT 与 GRPO 历史结果分别使用
+`0.6` 和 `0.0`，不满足同采样条件。新实验应统一生成配置，并将原历史结果单独报告。
+
+#### 5.3.4 Judge 模块
+
+论文 Section 5.1 说明采用 LLM-as-a-Judge 和优化后的答案等价 prompt，
+但正文没有指定最终评测 Judge 的具体模型。当前推荐配置采用：
+
+```bash
+FINR1_JUDGE_MODEL=qwen2.5-72b-instruct
+FINR1_JUDGE_API_URL=https://your-region-compatible-endpoint/v1
+FINR1_JUDGE_API_KEY=replace-with-your-key
+FINR1_JUDGE_REPEATS=1
+FINR1_JUDGE_AGGREGATION=majority_vote
+FINR1_JUDGE_MAX_TOKENS=8192
+```
+
+规则：
+
+- FinQA、ConvFinQA、Finance-Instruct-500k 使用 LLM Judge；
+- Ant-Finance 与 TFNS 使用确定性标签匹配；
+- 论文使用单一自动 Judge；本项目推荐每条开放题调用一次；
+- 聚合字段保留，便于独立进行多次 Judge 的稳健性实验；
+- 正式实验固定 Judge 日期版本，不使用滚动 alias；
+- 保留每次判定、返回 ID、错误和 disagreement。
+
+按论文定义，每个数据集的最终分数为正确率乘以 100；五项总分为五个子集分数的非加权平均。
+
+#### 5.3.5 执行模块
+
+```bash
+cd <evalscope-project>
+cp eval.env.example eval.env
+chmod 600 eval.env
+```
+
+小规模检查：
+
+```bash
+FINR1_LIMIT=2 bash run_eval.sh
+```
+
+完整评测：
+
+```bash
+FINR1_OUTPUT_DIR=/data/results/finr1-full bash run_eval.sh
+```
+
+输出目录包含：
+
+```text
+configs/task_config.yaml
+predictions/
+reviews/
+reports/
+logs/
+```
+
+验收条件：
+
+1. 每个子集 `Num=1000`，或明确记录缺失原因；
+2. 主指标为 Accuracy；
+3. `OVERALL` 为五个子集准确率的非加权平均；
+4. 有效 denominator 已报告；
+5. 同一比较使用相同 sample IDs；
+6. `manifest.json`、`task_config.yaml` 和逐题输出已归档。
+
+---
+
+
 
 ## 🕵️ 模型使用说明 <a name="use"></a>
 您可以直接从 huggingface 中下载我们的模型权重
